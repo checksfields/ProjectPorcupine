@@ -1,109 +1,102 @@
-﻿//=======================================================================
-// Copyright Martin "quill18" Glaude 2015.
-//		http://quill18.com
-//=======================================================================
-
-using UnityEngine;
+#region License
+// ====================================================
+// Project Porcupine Copyright(C) 2016 Team Porcupine
+// This program comes with ABSOLUTELY NO WARRANTY; This is free software, 
+// and you are welcome to redistribute it under certain conditions; See 
+// file LICENSE, which is part of this source code package, for details.
+// ====================================================
+#endregion
 using System.Collections.Generic;
 
+public class Path_TileGraph
+{
+    // This class constructs a simple path-finding compatible graph
+    // of our world.  Each tile is a node. Each WALKABLE neighbour
+    // from a tile is linked via an edge connection.
+    public Dictionary<Tile, Path_Node<Tile>> nodes;
 
-public class Path_TileGraph {
+    public Path_TileGraph(World world)
+    {
+        UnityDebugger.Debugger.Log("Path_TileGraph", "Entered Path_TileGraph");
 
-	// This class constructs a simple path-finding compatible graph
-	// of our world.  Each tile is a node. Each WALKABLE neighbour
-	// from a tile is linked via an edge connection.
+       /*
+        * Loop through all tiles of the world
+        * For each tile, create a node
+        *  Do we create nodes for non-floor tiles?  NO!
+        *  Do we create nodes for tiles that are completely unwalkable (i.e. walls)?  NO!
+        */
 
-	public Dictionary<Tile, Path_Node<Tile>> nodes;
+        nodes = new Dictionary<Tile, Path_Node<Tile>>();
 
-	public Path_TileGraph(World world) {
+        for (int x = 0; x < world.Width; x++)
+        {
+            for (int y = 0; y < world.Height; y++)
+            {
+                for (int z = 0; z < world.Depth; z++)
+                {
+                    Tile t = world.GetTileAt(x, y, z);
 
-		Debug.Log("Path_TileGraph");
+                    ////if(t.movementCost > 0) {    // Tiles with a move cost of 0 are unwalkable
+                    Path_Node<Tile> n = new Path_Node<Tile>();
+                    n.data = t;
+                    nodes.Add(t, n);
+                }
+            }
+        }
 
-		// Loop through all tiles of the world
-		// For each tile, create a node
-		//  Do we create nodes for non-floor tiles?  NO!
-		//  Do we create nodes for tiles that are completely unwalkable (i.e. walls)?  NO!
+        UnityDebugger.Debugger.Log("Path_TileGraph", "Created " + nodes.Count + " nodes.");
 
-		nodes = new Dictionary<Tile, Path_Node<Tile>>();
+        // Now loop through all nodes again
+        // Create edges for neighbours
+        foreach (Tile t in nodes.Keys)
+        {
+            GenerateEdgesByTile(t);
+        }
+    }
+        
+    public void RegenerateGraphAtTile(Tile changedTile)
+    {
+        if (changedTile == null)
+        {
+            return;
+        }
 
-		for (int x = 0; x < world.Width; x++) {
-			for (int y = 0; y < world.Height; y++) {
+        GenerateEdgesByTile(changedTile);
+        foreach (Tile tile in changedTile.GetNeighbours(true))
+        {
+            GenerateEdgesByTile(tile);
+        }
+    }
 
-				Tile t = world.GetTileAt(x,y);
+    private void GenerateEdgesByTile(Tile t)
+    {
+        if (t == null)
+        {
+            return;
+        }
 
-				//if(t.movementCost > 0) {	// Tiles with a move cost of 0 are unwalkable
-					Path_Node<Tile> n = new Path_Node<Tile>();
-					n.data = t;
-					nodes.Add(t, n);
-				//}
+        Path_Node<Tile> n = nodes[t];
+        List<Path_Edge<Tile>> edges = new List<Path_Edge<Tile>>();
 
-			}
-		}
+        // Get a list of neighbours for the tile
+        Tile[] neighbours = t.GetNeighbours(true, true);
 
-		Debug.Log("Path_TileGraph: Created "+nodes.Count+" nodes.");
+        // NOTE: Some of the array spots could be null.
+        // If neighbour is walkable, create an edge to the relevant node.
+        for (int i = 0; i < neighbours.Length; i++)
+        {
+            if (neighbours[i] != null && neighbours[i].PathfindingCost > 0 && t.IsClippingCorner(neighbours[i]) == false)
+            {
+                // This neighbour exists, is walkable, and doesn't requiring clipping a corner --> so create an edge.
+                Path_Edge<Tile> e = new Path_Edge<Tile>();
+                e.cost = neighbours[i].PathfindingCost;
+                e.node = nodes[neighbours[i]];
 
+                // Add the edge to our temporary (and growable!) list
+                edges.Add(e);
+            }
+        }
 
-		// Now loop through all nodes again
-		// Create edges for neighbours
-
-		int edgeCount = 0;
-
-		foreach(Tile t in nodes.Keys) {
-			Path_Node<Tile> n = nodes[t];
-
-			List<Path_Edge<Tile>> edges = new List<Path_Edge<Tile>>();
-
-			// Get a list of neighbours for the tile
-			Tile[] neighbours = t.GetNeighbours(true);	// NOTE: Some of the array spots could be null.
-
-			// If neighbour is walkable, create an edge to the relevant node.
-			for (int i = 0; i < neighbours.Length; i++) {
-				if(neighbours[i] != null && neighbours[i].movementCost > 0 && IsClippingCorner( t, neighbours[i] ) == false) {
-					// This neighbour exists, is walkable, and doesn't requiring clipping a corner --> so create an edge.
-
-					Path_Edge<Tile> e = new Path_Edge<Tile>();
-					e.cost = neighbours[i].movementCost;
-					e.node = nodes[ neighbours[i] ];
-
-					// Add the edge to our temporary (and growable!) list
-					edges.Add(e);
-
-					edgeCount++;
-				}
-			}
-
-			n.edges = edges.ToArray();
-		}
-
-		Debug.Log("Path_TileGraph: Created "+edgeCount+" edges.");
-
-	}
-
-	bool IsClippingCorner( Tile curr, Tile neigh ) {
-		// If the movement from curr to neigh is diagonal (e.g. N-E)
-		// Then check to make sure we aren't clipping (e.g. N and E are both walkable)
-
-		int dX = curr.X - neigh.X;
-		int dY = curr.Y - neigh.Y;
-
-		if( Mathf.Abs(dX) + Mathf.Abs(dY) == 2 ) {
-			// We are diagonal
-
-			if( World.current.GetTileAt( curr.X - dX, curr.Y ).movementCost == 0 ) {
-				// East or West is unwalkable, therefore this would be a clipped movement.
-				return true;
-			}
-
-			if( World.current.GetTileAt( curr.X, curr.Y - dY ).movementCost == 0 ) {
-				// North or South is unwalkable, therefore this would be a clipped movement.
-				return true;
-			}
-
-			// If we reach here, we are diagonal, but not clipping
-		}
-
-		// If we are here, we are either not clipping, or not diagonal
-		return false;
-	}
-
+        n.edges = edges.ToArray();
+    }
 }

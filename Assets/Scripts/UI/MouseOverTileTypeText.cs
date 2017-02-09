@@ -1,36 +1,35 @@
-﻿using UnityEngine;
+#region License
+// ====================================================
+// Project Porcupine Copyright(C) 2016 Team Porcupine
+// This program comes with ABSOLUTELY NO WARRANTY; This is free software, 
+// and you are welcome to redistribute it under certain conditions; See 
+// file LICENSE, which is part of this source code package, for details.
+// ====================================================
+#endregion
+
 using System.Collections;
+using System.Linq;
+using ProjectPorcupine.Localization;
+using UnityEngine;
 using UnityEngine.UI;
 
-public class MouseOverTileTypeText : MonoBehaviour {
+/// <summary>
+/// MouseOverRoomIndex impliments the abstact class MouseOver.
+/// It returns info strings that represent the tiles type.
+/// </summary>
+public class MouseOverTileTypeText : MouseOver
+{
+    protected override string GetMouseOverString(Tile tile)
+    {
+        string tileType = "N/A";
 
-	// Every frame, this script checks to see which tile
-	// is under the mouse and then updates the GetComponent<Text>.text
-	// parameter of the object it is attached to.
+        if (tile != null)
+        {
+            tileType = tile.Type.ToString();
+        }
 
-	Text myText;
-	MouseController mouseController;
+        string tileInfo = LocalizationTable.GetLocalization("tile_type", tileType);
 
-	// Use this for initialization
-	void Start () {
-		myText = GetComponent<Text>();
-
-		if(myText == null) {
-			Debug.LogError("MouseOverTileTypeText: No 'Text' UI component on this object.");
-			this.enabled = false;
-			return;
-		}
-
-		mouseController = GameObject.FindObjectOfType<MouseController>();
-		if(mouseController == null) {
-			Debug.LogError("How do we not have an instance of mouse controller?");
-			return;
-		}
-	}
-	
-	// Update is called once per frame
-	void Update () {
-		Tile t = mouseController.GetMouseOverTile();
-		myText.text = "Tile Type: " + t.Type.ToString();
-	}
+        return tileInfo;
+    }
 }

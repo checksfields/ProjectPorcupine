@@ -1,225 +1,264 @@
-﻿using UnityEngine;
+#region License
+// ====================================================
+// Project Porcupine Copyright(C) 2016 Team Porcupine
+// This program comes with ABSOLUTELY NO WARRANTY; This is free software,
+// and you are welcome to redistribute it under certain conditions; See
+// file LICENSE, which is part of this source code package, for details.
+// ====================================================
+#endregion
 using System.Collections.Generic;
-using Priority_Queue;
 using System.Linq;
+using ProjectPorcupine.Pathfinding;
+using UnityEngine;
 
-public class Path_AStar {
+public class Path_AStar
+{
+    /// This will contain the built path.
+    private Queue<Tile> path;
 
-	Queue<Tile> path;
+    public Path_AStar(Queue<Tile> path)
+    {
+        if (path == null || !path.Any())
+        {
+            UnityDebugger.Debugger.LogWarning("Path_AStar", "Created path with no tiles, is this intended?");
+        }
 
-	public Path_AStar(World world, Tile tileStart, Tile tileEnd, string objectType=null, int desiredAmount=0, bool canTakeFromStockpile=false) {
+        this.path = path;
+    }
 
-		// if tileEnd is null, then we are simply scanning for the nearest objectType.
-		// We can do this by ignoring the heuristic component of AStar, which basically
-		// just turns this into an over-engineered Dijkstra's algo
+    public Path_AStar(World world, Tile tileStart, Pathfinder.GoalEvaluator isGoal, Pathfinder.PathfindingHeuristic costEstimate)
+    {
+        float startTime = Time.realtimeSinceStartup;
 
-		// Check to see if we have a valid tile graph
-		if(world.tileGraph == null) {
-			world.tileGraph = new Path_TileGraph(world);
-		}
+        // Set path to empty Queue so that there always is something to check count on
+        path = new Queue<Tile>();
 
-		// A dictionary of all valid, walkable nodes.
-		Dictionary<Tile, Path_Node<Tile>> nodes = world.tileGraph.nodes;
+        // if tileEnd is null, then we are simply scanning for the nearest objectType.
+        // We can do this by ignoring the heuristic component of AStar, which basically
+        // just turns this into an over-engineered Dijkstra's algo
 
-		// Make sure our start/end tiles are in the list of nodes!
-		if(nodes.ContainsKey(tileStart) == false) {
-			Debug.LogError("Path_AStar: The starting tile isn't in the list of nodes!");
+        // Check to see if we have a valid tile graph
+        if (world.tileGraph == null)
+        {
+            world.tileGraph = new Path_TileGraph(world);
+        }
 
-			return;
-		}
+        // Check to see if we have a valid tile graph
+        if (world.roomGraph == null)
+        {
+            world.roomGraph = new Path_RoomGraph(world);
+        }
 
+        // A dictionary of all valid, walkable nodes.
+        Dictionary<Tile, Path_Node<Tile>> nodes = world.tileGraph.nodes;
 
-		Path_Node<Tile> start = nodes[tileStart];
+        // Make sure our start/end tiles are in the list of nodes!
+        if (nodes.ContainsKey(tileStart) == false)
+        {
+            UnityDebugger.Debugger.LogError("Path_AStar", "The starting tile isn't in the list of nodes!");
 
-		// if tileEnd is null, then we are simply looking for an inventory object
-		// so just set goal to null.
-		Path_Node<Tile> goal = null;
-		if(tileEnd != null) {
-			if(nodes.ContainsKey(tileEnd) == false) {
-				Debug.LogError("Path_AStar: The ending tile isn't in the list of nodes!");
-				return;
-			}
+            return;
+        }
 
-			goal = nodes[tileEnd];
-		}
+        Path_Node<Tile> start = nodes[tileStart];
 
+        /*
+         * Mostly following this pseusocode:
+         * https://en.wikipedia.org/wiki/A*_search_algorithm
+         */
+        HashSet<Path_Node<Tile>> closedSet = new HashSet<Path_Node<Tile>>();
 
-		// Mostly following this pseusocode:
-		// https://en.wikipedia.org/wiki/A*_search_algorithm
+        /*
+         * List<Path_Node<Tile>> openSet = new List<Path_Node<Tile>>();
+         *        openSet.Add( start );
+         */
 
-		List<Path_Node<Tile>> ClosedSet = new List<Path_Node<Tile>>();
+        PathfindingPriorityQueue<Path_Node<Tile>> openSet = new PathfindingPriorityQueue<Path_Node<Tile>>();
+        openSet.Enqueue(start, 0);
 
-/*		List<Path_Node<Tile>> OpenSet = new List<Path_Node<Tile>>();
-		OpenSet.Add( start );
-*/
+        Dictionary<Path_Node<Tile>, Path_Node<Tile>> came_From = new Dictionary<Path_Node<Tile>, Path_Node<Tile>>();
 
-		SimplePriorityQueue<Path_Node<Tile>> OpenSet = new SimplePriorityQueue<Path_Node<Tile>>();
-		OpenSet.Enqueue( start, 0);
+        Dictionary<Path_Node<Tile>, float> g_score = new Dictionary<Path_Node<Tile>, float>();
+        g_score[start] = 0;
 
-		Dictionary<Path_Node<Tile>, Path_Node<Tile>> Came_From = new Dictionary<Path_Node<Tile>, Path_Node<Tile>>();
+        Dictionary<Path_Node<Tile>, float> f_score = new Dictionary<Path_Node<Tile>, float>();
+        f_score[start] = costEstimate(start.data);
 
-		Dictionary<Path_Node<Tile>, float> g_score = new Dictionary<Path_Node<Tile>, float>();
-		foreach(Path_Node<Tile> n in nodes.Values) {
-			g_score[n] = Mathf.Infinity;
-		}
-		g_score[ start ] = 0;
+        while (openSet.Count > 0)
+        {
+            Path_Node<Tile> current = openSet.Dequeue();
 
-		Dictionary<Path_Node<Tile>, float> f_score = new Dictionary<Path_Node<Tile>, float>();
-		foreach(Path_Node<Tile> n in nodes.Values) {
-			f_score[n] = Mathf.Infinity;
-		}
-		f_score[ start ] = heuristic_cost_estimate( start, goal );
+            // Check to see if we are there.
+            if (isGoal(current.data))
+            {
+                Duration = Time.realtimeSinceStartup - startTime;
+                Reconstruct_path(came_From, current);
+                return;
+            }
 
-		while( OpenSet.Count > 0 ) {
-			Path_Node<Tile> current = OpenSet.Dequeue();
+            closedSet.Add(current);
 
-			// If we have a POSITIONAL goal, check to see if we are there.
-			if(goal != null) {
-				if(current == goal) {
-					reconstruct_path(Came_From, current);
-					return;
-				}
-			}
-			else {
-				// We don't have a POSITIONAL goal, we're just trying to find
-				// some king of inventory.  Have we reached it?
-				if( current.data.inventory != null && current.data.inventory.objectType == objectType ) {
-					// Type is correct
-					if( canTakeFromStockpile || current.data.furniture == null || current.data.furniture.IsStockpile() == false ) {
-						// Stockpile status is fine
-						reconstruct_path(Came_From, current);
-						return;
-					}
-				}
-			}
+            foreach (Path_Edge<Tile> edge_neighbor in current.edges)
+            {
+                Path_Node<Tile> neighbor = edge_neighbor.node;
 
-			ClosedSet.Add(current);
+                if (closedSet.Contains(neighbor))
+                {
+                    continue; // ignore this already completed neighbor
+                }
 
-			foreach(Path_Edge<Tile> edge_neighbor in current.edges) {
-				Path_Node<Tile> neighbor = edge_neighbor.node;
+                float pathfinding_cost_to_neighbor = neighbor.data.PathfindingCost * Dist_between(current, neighbor);
 
-				if( ClosedSet.Contains(neighbor) == true )
-					continue; // ignore this already completed neighbor
+                float tentative_g_score = g_score[current] + pathfinding_cost_to_neighbor;
 
-				float movement_cost_to_neighbor = neighbor.data.movementCost * dist_between(current, neighbor);
+                if (openSet.Contains(neighbor) && tentative_g_score >= g_score[neighbor])
+                {
+                    continue;
+                }
 
-				float tentative_g_score = g_score[current] + movement_cost_to_neighbor;
+                came_From[neighbor] = current;
+                g_score[neighbor] = tentative_g_score;
+                f_score[neighbor] = g_score[neighbor] + costEstimate(neighbor.data);
 
-				if(OpenSet.Contains(neighbor) && tentative_g_score >= g_score[neighbor])
-					continue;
+                openSet.EnqueueOrUpdate(neighbor, f_score[neighbor]);
+            } // foreach neighbour
+        } // while
 
-				Came_From[neighbor] = current;
-				g_score[neighbor] = tentative_g_score;
-				f_score[neighbor] = g_score[neighbor] + heuristic_cost_estimate(neighbor, goal);
+        // If we reached here, it means that we've burned through the entire
+        // openSet without ever reaching a point where current == goal.
+        // This happens when there is no path from start to goal
+        // (so there's a wall or missing floor or something).
 
-				if(OpenSet.Contains(neighbor) == false) {
-					OpenSet.Enqueue(neighbor, f_score[neighbor]);
-				}
-				else {
-					OpenSet.UpdatePriority(neighbor, f_score[neighbor]);
-				}
+        // We don't have a failure state, maybe? It's just that the
+        // path list will be null.
+        Duration = Time.realtimeSinceStartup - startTime;
+    }
 
-			} // foreach neighbour
-		} // while
+    /// Contains the time it took to find the path
+    public float Duration { get; private set; }
 
-		// If we reached here, it means that we've burned through the entire
-		// OpenSet without ever reaching a point where current == goal.
-		// This happens when there is no path from start to goal
-		// (so there's a wall or missing floor or something).
+    public Tile Dequeue()
+    {
+        if (path == null)
+        {
+            UnityDebugger.Debugger.LogError("Path_AStar", "Attempting to dequeue from an null path.");
+            return null;
+        }
 
-		// We don't have a failure state, maybe? It's just that the
-		// path list will be null.
-	}
+        if (path.Count <= 0)
+        {
+            UnityDebugger.Debugger.LogError("Path_AStar", "Path queue is zero or less elements long.");
+            return null;
+        }
 
-	float heuristic_cost_estimate( Path_Node<Tile> a, Path_Node<Tile> b ) {
-		if(b == null) {
-			// We have no fixed destination (i.e. probably looking for an inventory item)
-			// so just return 0 for the cost estimate (i.e. all directions as just as good)
-			return 0f;
-		}
+        return path.Dequeue();
+    }
 
-		return Mathf.Sqrt(
-			Mathf.Pow(a.data.X - b.data.X, 2) +
-			Mathf.Pow(a.data.Y - b.data.Y, 2)
-		);
+    public int Length()
+    {
+        if (path == null)
+        {
+            return 0;
+        }
 
-	}
+        return path.Count;
+    }
 
-	float dist_between( Path_Node<Tile> a, Path_Node<Tile> b ) {
-		// We can make assumptions because we know we're working
-		// on a grid at this point.
+    public Tile EndTile()
+    {
+        if (path == null || path.Count == 0)
+        {
+            UnityDebugger.Debugger.Log("Path_AStar", "Path is null or empty.");
+            return null;
+        }
 
-		// Hori/Vert neighbours have a distance of 1
-		if( Mathf.Abs( a.data.X - b.data.X ) + Mathf.Abs( a.data.Y - b.data.Y ) == 1 ) {
-			return 1f;
-		}
+        return path.Last();
+    }
 
-		// Diag neighbours have a distance of 1.41421356237	
-		if( Mathf.Abs( a.data.X - b.data.X ) == 1 && Mathf.Abs( a.data.Y - b.data.Y ) == 1 ) {
-			return 1.41421356237f;
-		}
+    public IEnumerable<Tile> Reverse()
+    {
+        return path == null ? null : path.Reverse();
+    }
 
-		// Otherwise, do the actual math.
-		return Mathf.Sqrt(
-			Mathf.Pow(a.data.X - b.data.X, 2) +
-			Mathf.Pow(a.data.Y - b.data.Y, 2)
-		);
+    public List<Tile> GetList()
+    {
+        return path.ToList();
+    }
 
-	}
+    public Queue<Tile> GetQueue()
+    {
+        return path;
+    }
 
-	void reconstruct_path(
-		Dictionary<Path_Node<Tile>, Path_Node<Tile>> Came_From,
-		Path_Node<Tile> current
-	) {
-		// So at this point, current IS the goal.
-		// So what we want to do is walk backwards through the Came_From
-		// map, until we reach the "end" of that map...which will be
-		// our starting node!
-		Queue<Tile> total_path = new Queue<Tile>();
-		total_path.Enqueue(current.data); // This "final" step is the path is the goal!
+    private float Heuristic_cost_estimate(Path_Node<Tile> a, Path_Node<Tile> b)
+    {
+        if (b == null)
+        {
+            // We have no fixed destination (i.e. probably looking for an inventory item)
+            // so just return 0 for the cost estimate (i.e. all directions as just as good)
+            return 0f;
+        }
 
-		while( Came_From.ContainsKey(current) ) {
-			// Came_From is a map, where the
-			//    key => value relation is real saying
-			//    some_node => we_got_there_from_this_node
+        return Mathf.Sqrt(
+            Mathf.Pow(a.data.X - b.data.X, 2) +
+            Mathf.Pow(a.data.Y - b.data.Y, 2) +
+            Mathf.Pow(a.data.Z - b.data.Z, 2));
+    }
 
-			current = Came_From[current];
-			total_path.Enqueue(current.data);
-		}
+    private float Dist_between(Path_Node<Tile> a, Path_Node<Tile> b)
+    {
+        // We can make assumptions because we know we're working
+        // on a grid at this point.
 
-		// At this point, total_path is a queue that is running
-		// backwards from the END tile to the START tile, so let's reverse it.
+        // Hori/Vert neighbours have a distance of 1
+        if (Mathf.Abs(a.data.X - b.data.X) + Mathf.Abs(a.data.Y - b.data.Y) == 1 && a.data.Z == b.data.Z)
+        {
+            return 1f;
+        }
 
-		path = new Queue<Tile>( total_path.Reverse() );
+        // Diag neighbours have a distance of 1.41421356237
+        if (Mathf.Abs(a.data.X - b.data.X) == 1 && Mathf.Abs(a.data.Y - b.data.Y) == 1 && a.data.Z == b.data.Z)
+        {
+            return 1.41421356237f;
+        }
 
-	}
+        // Up/Down neighbors have a distance of 1
+        if (a.data.X == b.data.X && a.data.Y == b.data.Y && Mathf.Abs(a.data.Z - b.data.Z) == 1)
+        {
+            return 1f;
+        }
 
-	public Tile Dequeue() {
-		if(path == null) {
-			Debug.LogError("Attempting to dequeue from an null path.");
-			return null;
-		}
-		if(path.Count <= 0) {
-			Debug.LogError("what???");
-			return null;
-		}
-		return path.Dequeue();
-	}
+        // Otherwise, do the actual math.
+        return Mathf.Sqrt(
+            Mathf.Pow(a.data.X - b.data.X, 2) +
+            Mathf.Pow(a.data.Y - b.data.Y, 2) +
+            Mathf.Pow(a.data.Z - b.data.Z, 2));
+    }
 
-	public int Length() {
-		if(path == null)
-			return 0;
+    private void Reconstruct_path(
+        Dictionary<Path_Node<Tile>, Path_Node<Tile>> came_From,
+        Path_Node<Tile> current)
+    {
+        // So at this point, current IS the goal.
+        // So what we want to do is walk backwards through the Came_From
+        // map, until we reach the "end" of that map...which will be
+        // our starting node!
+        Queue<Tile> total_path = new Queue<Tile>();
+        total_path.Enqueue(current.data); // This "final" step is the path is the goal!
 
-		return path.Count;
-	}
+        while (came_From.ContainsKey(current))
+        {
+            /*    Came_From is a map, where the
+            *    key => value relation is real saying
+            *    some_node => we_got_there_from_this_node
+            */
 
-	public Tile EndTile() {
-		if(path == null || path.Count == 0) {
-			Debug.Log("Path is null or empty.");
-			return null;
-		}
+            current = came_From[current];
+            total_path.Enqueue(current.data);
+        }
 
-		return path.Last();
-	}
-
+        // At this point, total_path is a queue that is running
+        // backwards from the END tile to the START tile, so let's reverse it.
+        path = new Queue<Tile>(total_path.Reverse());
+    }
 }

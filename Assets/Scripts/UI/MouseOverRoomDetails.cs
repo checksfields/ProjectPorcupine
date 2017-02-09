@@ -1,48 +1,47 @@
-﻿using UnityEngine;
-using System.Collections;
+#region License
+// ====================================================
+// Project Porcupine Copyright(C) 2016 Team Porcupine
+// This program comes with ABSOLUTELY NO WARRANTY; This is free software, 
+// and you are welcome to redistribute it under certain conditions; See 
+// file LICENSE, which is part of this source code package, for details.
+// ====================================================
+#endregion
+
+using ProjectPorcupine.Rooms;
+using UnityEngine;
 using UnityEngine.UI;
 
-public class MouseOverRoomDetails : MonoBehaviour {
+/// <summary>
+/// MouseOverRoomIndex impliments the abstact class MouseOver.
+/// It returns info strings that represent the tiles room Details.
+/// </summary>
+public class MouseOverRoomDetails : MouseOver
+{
+    protected override string GetMouseOverString(Tile tile)
+    {
+        if (tile == null || tile.Room == null)
+        {
+            return string.Empty;
+        }
 
-	// Every frame, this script checks to see which tile
-	// is under the mouse and then updates the GetComponent<Text>.text
-	// parameter of the object it is attached to.
+        string roomDetails = string.Empty;
 
-	Text myText;
-	MouseController mouseController;
+        roomDetails += World.Current.temperature.GetTemperatureInF(tile.X, tile.Y, tile.Z) + "F";
+        roomDetails += " (" + World.Current.temperature.GetTemperatureInC(tile.X, tile.Y, tile.Z) + "C)\n";
+        foreach (string gasName in tile.Room.GetGasNames())
+        {
+            roomDetails += string.Format("{0}: ({1}) {2:0.000} atm ({3:0.0}%)\n", gasName, tile.Room.ChangeInGas(gasName), tile.Room.GetGasPressure(gasName), tile.Room.GetGasFraction(gasName) * 100);
+        }
 
-	// Use this for initialization
-	void Start () {
-		myText = GetComponent<Text>();
+        if (tile.Room.RoomBehaviors.Count > 0)
+        {
+            roomDetails += "Behaviors:\n";
+            foreach (RoomBehavior behavior in tile.Room.RoomBehaviors.Values)
+            {
+                roomDetails += behavior.Name + "\n";
+            }
+        }
 
-		if(myText == null) {
-			Debug.LogError("MouseOverTileTypeText: No 'Text' UI component on this object.");
-			this.enabled = false;
-			return;
-		}
-
-		mouseController = GameObject.FindObjectOfType<MouseController>();
-		if(mouseController == null) {
-			Debug.LogError("How do we not have an instance of mouse controller?");
-			return;
-		}
-	}
-	
-	// Update is called once per frame
-	void Update () {
-		Tile t = mouseController.GetMouseOverTile();
-
-		if(t == null || t.room == null) {
-			myText.text = "";
-			return;
-		}
-
-		string s = "";
-
-		foreach(string g in t.room.GetGasNames()) {
-			s += g + ": " + t.room.GetGasAmount(g) + " (" + (t.room.GetGasPercentage(g)*100) + "%) ";
-		}
-
-		myText.text = s;
-	}
+        return roomDetails;
+    }
 }
